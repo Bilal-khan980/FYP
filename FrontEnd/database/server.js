@@ -4,6 +4,8 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
 
 const app = express();
 
@@ -104,6 +106,108 @@ app.post('/api/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Configure multer for video upload
+const storage = multer.diskStorage({
+  destination: './uploads/',
+  filename: function(req, file, cb) {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 100000000 }, // 100MB limit
+  fileFilter: function(req, file, cb) {
+    const filetypes = /mp4|mov|avi|mkv|jpg|jpeg|png/;
+    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = filetypes.test(file.mimetype);
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb('Error: Videos Only!');
+    }
+  }
+}).single('file');
+
+// Video Schema
+const videoSchema = new mongoose.Schema({
+  filename: {
+    type: String,
+    required: true
+  },
+  originalName: {
+    type: String,
+    required: true
+  },
+  uploadedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  violationType: {
+    type: String,
+    enum: ['overspeeding', 'illegal_lane_change', 'driving_on_lane_line', 
+           'damaged_brake_lights', 'driving_htv_first_lane', 'illegal_license_plate'],
+    required: true
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'processed'],
+    default: 'pending'
+  },
+  results: {
+    type: String,
+    default: 'pending'
+  }
+}, { timestamps: true });
+
+const Video = mongoose.model('Video', videoSchema);
+
+// Add video upload endpoint
+app.post('/api/upload', async (req, res) => {
+  upload(req, res, async (err) => {
+    if (err) {
+      return res.status(400).json({ message: err });
+    }
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    try {
+      const video = new Video({
+        filename: req.file.filename,
+        originalName: req.file.originalname,
+        uploadedBy: req.body.userId,
+        violationType: req.body.violationType,
+      });
+
+      await video.save();
+      
+      // Dummy API call to processing server
+      setTimeout(() => {
+        console.log('Processing video:', req.file.filename);
+      }, 1000);
+
+      res.status(200).json({ message: 'Upload successful', video });
+    } catch (error) {
+      console.error('Upload error:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+});
+
+// Get user's videos endpoint
+app.get('/api/videos/:userId', async (req, res) => {
+  try {
+    const videos = await Video.find({ uploadedBy: req.params.userId })
+      .sort({ createdAt: -1 });
+    res.json(videos);
+  } catch (error) {
+    console.error('Error fetching videos:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

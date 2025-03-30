@@ -1,10 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import Upload from './Upload';
+import Results from './Results';
 import './Home.css';
 
 function Home() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
+  const [activeTab, setActiveTab] = useState('upload');
 
   useEffect(() => {
     const userStr = localStorage.getItem('user');
@@ -26,18 +29,24 @@ function Home() {
   return (
     <div className="home-container">
       <nav className="home-nav">
-        <h1>Welcome to Dashboard</h1>
-        <button onClick={handleLogout} className="logout-button">
-          Logout
-        </button>
+        <h1>Traffic Violation Management System</h1>
+        <div className="nav-buttons">
+          <button onClick={() => setActiveTab('upload')} className={activeTab === 'upload' ? 'active' : ''}>
+            Upload
+          </button>
+          <button onClick={() => setActiveTab('results')} className={activeTab === 'results' ? 'active' : ''}>
+            Results
+          </button>
+          <button onClick={handleLogout} className="logout-button">
+            Logout
+          </button>
+        </div>
       </nav>
       <div className="home-content">
-        <h2>Welcome, {user.username}!</h2>
-        <div className="user-info">
-          <p><strong>Email:</strong> {user.email}</p>
-          <p><strong>User ID:</strong> {user.id}</p>
+        <div className="user-welcome">
+          <h2>Welcome, {user.username}!</h2>
         </div>
-        {/* Add more dashboard content here */}
+        {activeTab === 'upload' ? <Upload /> : <Results />}
       </div>
     </div>
   );
