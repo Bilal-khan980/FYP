@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import './Register.css';
 
 function Register() {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -22,9 +24,10 @@ function Register() {
       const response = await axios.post('http://localhost:5000/api/register', formData);
       console.log(response.data);
       alert('Registration successful!');
+      navigate('/login');
     } catch (error) {
       console.error('Registration error:', error);
-      alert('Registration failed. Please try again.');
+      alert(error.response?.data?.message || 'Registration failed');
     }
   };
 
@@ -63,6 +66,9 @@ function Register() {
           />
         </div>
         <button type="submit">Register</button>
+        <p className="login-link">
+          Already have an account? <Link to="/login">Login here</Link>
+        </p>
       </form>
     </div>
   );
