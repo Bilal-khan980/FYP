@@ -13,6 +13,10 @@ __pycache__/
 # Production build
 /FrontEnd/webapp/build
 
+# Uploads directory
+/FrontEnd/database/uploads/
+uploads/
+
 # Large data files
 *.csv
 *.json.gz
