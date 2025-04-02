@@ -2,14 +2,24 @@ import torch
 import cv2
 import numpy as np
 from matplotlib import pyplot as plt
-from scipy.interpolate import splprep, splev
 from matplotlib.path import Path
 import os
+import shutil
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import JSONResponse, FileResponse
+import uuid
+from datetime import datetime
 
-# Fix: Use correct path with 'modelss' instead of 'models'
+app = FastAPI(title="HTV Lane Detection API", description="API for processing videos to detect vehicles in lanes")
+
+# Create outputs directory
+outputs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "outputs")
+os.makedirs(outputs_dir, exist_ok=True)
+
+# Set correct paths to model files based on actual file locations
 current_dir = os.path.dirname(os.path.abspath(__file__))
-best_weights_path = os.path.join(current_dir, '..', 'yolov5(1)', 'modelss', 'laneDetecion.pt')
-yolov5m_path = os.path.join(current_dir, '..', 'yolov5(1)', 'yolov5m.pt')
+best_weights_path = os.path.join(current_dir, 'modelss', 'laneDetecion.pt')
+yolov5m_path = os.path.join(current_dir, 'yolov5(1)', 'yolov5m.pt')
 
 # Verify paths exist
 if not os.path.exists(best_weights_path):
@@ -22,17 +32,6 @@ detectRightLane = True
 # Load both models properly
 vehicle_model = torch.hub.load('ultralytics/yolov5', 'custom', path=yolov5m_path)
 lane_model = torch.hub.load('ultralytics/yolov5', 'custom', path=best_weights_path, force_reload=True)
-
-# Update the video paths with absolute paths
-video_path = "htv.mp4"
-output_path = os.path.join(current_dir,"out_htv.mp4")
-
-# Create videos directory if it doesn't exist
-os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-# Verify video exists
-if not os.path.exists(video_path):
-    raise FileNotFoundError(f"Video file not found at: {video_path}")
 
 def visualize_vehicles(image, vehicles, lane_vehicles, lane_points, display=False):
     marked_image = image.copy()
@@ -85,7 +84,7 @@ def check_vehicles_in_lane(vehicles, lane_points):
     ])
     lane_path = Path(lane_polygon)
     vehicles_in_lane = []
-    
+
     for vehicle in vehicles:
         x1, y1, x2, y2, conf, cls = vehicle
         x1, y1, x2, y2 = float(x1), float(y1), float(x2), float(y2)
@@ -111,7 +110,7 @@ def detect_vehicles(image, model):
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     results = model(image_rgb)
     vehicles = []
-    
+
     for det in results.xyxy[0]:
         x1, y1, x2, y2, conf, cls = det.cpu().numpy()
         if cls in [2, 5, 7]:
@@ -125,7 +124,7 @@ def process_detections(image, model, filterRightPoints=detectRightLane):
     img_center = image.shape[1] // 2
     results = model(image_rgb)
     detections = []
-    
+
     for det in results.xyxy[0]:
         x1, y1, x2, y2, conf, cls = det.cpu().numpy()
         center_x = (x1 + x2) / 2
@@ -190,13 +189,13 @@ def find_and_connect_nearest_lane(image, detections, notShowOutput=False, detect
     img_center = image.shape[1] // 2
     if boundary_solid_point[0] >= img_center:
         corner_points = [
-            (ref_box[0], ref_box[1]),  
-            (ref_box[2], ref_box[3])  
+            (ref_box[0], ref_box[1]),
+            (ref_box[2], ref_box[3])
         ]
     else:
         corner_points = [
-            (ref_box[2], ref_box[1]), 
-            (ref_box[0], ref_box[3])  
+            (ref_box[2], ref_box[1]),
+            (ref_box[0], ref_box[3])
         ]
 
     min_distance = float('inf')
@@ -277,58 +276,152 @@ def find_and_connect_nearest_lane(image, detections, notShowOutput=False, detect
 
     return frame, best_line, corner_points
 
-def process_video_lanes_and_lane_vehicles(video_path, model,vehicle_model, output_path=None):
-    """Process video for lane detection and visualization"""
+def process_video_lanes_and_lane_vehicles(video_path, model, vehicle_model, cleanup=True):
+    """Process video for lane detection and visualization
+
+    Args:
+        video_path: Path to the input video
+        model: Lane detection model
+        vehicle_model: Vehicle detection model
+        cleanup: Whether to remove the input video after processing
+
+    Returns:
+        Tuple containing (result_message, image_path) where:
+        - result_message: "HTV in first lane detected" or "No violation"
+        - image_path: Path to the saved image if violation detected, None otherwise
+    """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        print("Error: Could not open video.")
-        return
+        print(f"Error: Could not open video at {video_path}")
+        return "Error: Could not open video", None
 
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = int(cap.get(cv2.CAP_PROP_FPS))
-
-    if output_path:
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    frame_count = 0
+    violation_detected = False
+    violation_image_path = None
 
     while True:
         ret, frame = cap.read()
         if not ret:
             break
-        detections = []
 
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame_count += 1
+        detections = []
         _, detections = process_detections(frame, model)
-        
-        
-        results = model(frame_rgb)
-        marked_frame,best_line, corner_points=find_and_connect_nearest_lane(frame, detections,notShowOutput=True)
-        vehicles = detect_vehicles(frame, vehicle_model)
+        marked_frame, best_line, corner_points = find_and_connect_nearest_lane(frame, detections, notShowOutput=True)
+
         if best_line is None or corner_points is None:
-            out.write(marked_frame)
             continue
+
+        vehicles = detect_vehicles(frame, vehicle_model)
         lane_points = [best_line, corner_points]
         lane_vehicles = check_vehicles_in_lane(vehicles, lane_points)
 
-        marked_frame=visualize_vehicles(frame, vehicles, lane_vehicles, lane_points,display=False)
-        if output_path:
-            out.write(marked_frame)
-        else:
-            plt.imshow(marked_frame) 
-            plt.title('Lane Detection')
-            plt.axis('off') 
-            plt.show()
+        # If lane vehicles detected, save the frame and stop processing
+        if len(lane_vehicles) > 0:
+            # Generate a unique filename for the violation image
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            image_filename = f"violation_{timestamp}_frame{frame_count}.jpg"
+            violation_image_path = os.path.join(outputs_dir, image_filename)
+
+            # Draw the vehicles and lane on the frame
+            marked_frame = visualize_vehicles(frame, vehicles, lane_vehicles, lane_points, display=False)
+
+            # Save the image
+            cv2.imwrite(violation_image_path, marked_frame)
+            violation_detected = True
+            break
 
     cap.release()
-    if output_path:
-        out.release()
+
+    # Clean up the input file if requested
+    if cleanup and os.path.exists(video_path):
+        try:
+            os.remove(video_path)
+            print(f"Removed temporary file: {video_path}")
+        except Exception as e:
+            print(f"Failed to remove temporary file {video_path}: {e}")
+
+    if violation_detected:
+        return "HTV in first lane detected", violation_image_path
+    else:
+        return "No violation", None
 
 
 
-print('Processing Video')
-# Pass the lane_model instead of the path
-process_video_lanes_and_lane_vehicles(video_path, lane_model, vehicle_model, output_path)
-print('Video Processed Successfully.')
-print(f'Saved At: {output_path} ')
+@app.post("/process-video/")
+async def process_video(file: UploadFile = File(...)):
+    """
+    Process a video file to detect lanes and vehicles.
 
+    Args:
+        file: The video file to process
+
+    Returns:
+        JSON response with the result and image path if violation detected
+    """
+    # Generate a unique filename for the uploaded video
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    unique_id = str(uuid.uuid4())[:8]
+    filename = f"{timestamp}_{unique_id}_{file.filename}"
+
+    # Save the uploaded file
+    temp_file_path = os.path.join(current_dir, filename)
+    with open(temp_file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # Process the video synchronously (not in background)
+    result_message, image_path = process_video_lanes_and_lane_vehicles(
+        temp_file_path,
+        lane_model,
+        vehicle_model,
+        cleanup=True
+    )
+
+    # Prepare the response
+    response_data = {
+        "message": result_message,
+    }
+
+    if image_path:
+        # Get just the filename from the path
+        image_filename = os.path.basename(image_path)
+        response_data["violation_detected"] = True
+        response_data["image_url"] = f"/images/{image_filename}"
+    else:
+        response_data["violation_detected"] = False
+
+    return JSONResponse(content=response_data)
+
+@app.get("/images/{filename}")
+async def get_image(filename: str):
+    """
+    Get a violation image file.
+
+    Args:
+        filename: The name of the image file
+
+    Returns:
+        The image file
+    """
+    file_path = os.path.join(outputs_dir, filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    return FileResponse(
+        path=file_path,
+        filename=filename,
+        media_type="image/jpeg"
+    )
+
+@app.get("/")
+async def root():
+    return {"message": "HTV Lane Detection API is running"}
+
+
+
+if __name__ == "__main__":
+    try:
+        import uvicorn
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+    except ImportError:
+        print("Uvicorn not installed. Install it with: pip install uvicorn")

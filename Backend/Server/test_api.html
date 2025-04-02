@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTV Lane Detection API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+            white-space: pre-wrap;
+        }
+        #status {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+        #image-container {
+            margin-top: 20px;
+        }
+        .violation {
+            color: red;
+            font-weight: bold;
+        }
+        .no-violation {
+            color: green;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>HTV Lane Detection API Test</h1>
+
+    <div class="form-group">
+        <label for="video">Select a video file:</label>
+        <input type="file" id="video" accept="video/*">
+    </div>
+
+    <button id="upload">Upload and Process</button>
+
+    <div id="status"></div>
+    <pre id="result"></pre>
+
+    <div id="image-container"></div>
+
+    <script>
+        document.getElementById('upload').addEventListener('click', async () => {
+            const fileInput = document.getElementById('video');
+            const statusDiv = document.getElementById('status');
+            const resultDiv = document.getElementById('result');
+            const imageContainer = document.getElementById('image-container');
+
+            if (!fileInput.files.length) {
+                statusDiv.textContent = 'Please select a video file';
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            statusDiv.textContent = 'Uploading and processing video...';
+            imageContainer.innerHTML = '';
+
+            try {
+                const response = await fetch('/process-video/', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                resultDiv.textContent = JSON.stringify(data, null, 2);
+
+                if (data.violation_detected) {
+                    statusDiv.innerHTML = `<span class="violation">${data.message}</span>`;
+
+                    // Display the violation image
+                    imageContainer.innerHTML = `
+                        <h3>Violation Detected:</h3>
+                        <img src="${data.image_url}" alt="Violation Image" style="max-width: 100%">
+                        <p><a href="${data.image_url}" download>Download Violation Image</a></p>
+                    `;
+                } else {
+                    statusDiv.innerHTML = `<span class="no-violation">${data.message}</span>`;
+                }
+            } catch (error) {
+                statusDiv.textContent = 'Error: ' + error.message;
+                console.error('Error:', error);
+            }
+        });
+    </script>
+</body>
+</html>
