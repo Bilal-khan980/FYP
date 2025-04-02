@@ -1,12 +1,14 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useNavigate } from "react-router-dom"
 import axios from "axios"
 import { motion } from "framer-motion"
 import { FileVideo, Clock, CheckCircle, AlertTriangle, Calendar, Tag, Info } from "lucide-react"
 import "./Results.css"
 
 function Results() {
+  const navigate = useNavigate()
   const [videos, setVideos] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -145,7 +147,7 @@ function Results() {
               </div>
 
               <div className="card-actions">
-                <button className="action-button">View Details</button>
+                <button className="action-button" onClick={() => navigate(`/video/${video._id}`)}>View Details</button>
               </div>
             </motion.div>
           ))}

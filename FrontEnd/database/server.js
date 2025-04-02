@@ -6,12 +6,23 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
+const axios = require('axios');
+const FormData = require('form-data');
 
 const app = express();
 
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', express.static('uploads'));
+app.use('/outputs', express.static('outputs'));
+
+// Create outputs directory if it doesn't exist
+const outputsDir = path.join(__dirname, 'outputs');
+if (!fs.existsSync(outputsDir)) {
+  fs.mkdirSync(outputsDir, { recursive: true });
+}
 
 // MongoDB connection
 mongoose.connect('mongodb+srv://Bilalkhan:Pakistan@cluster1.moct8fi.mongodb.net/BeAWarden', {
@@ -150,7 +161,7 @@ const videoSchema = new mongoose.Schema({
   },
   violationType: {
     type: String,
-    enum: ['overspeeding', 'illegal_lane_change', 'driving_on_lane_line', 
+    enum: ['overspeeding', 'illegal_lane_change', 'driving_on_lane_line',
            'damaged_brake_lights', 'driving_htv_first_lane', 'illegal_license_plate'],
     required: true
   },
@@ -162,6 +173,10 @@ const videoSchema = new mongoose.Schema({
   results: {
     type: String,
     default: 'pending'
+  },
+  detectionProof: {
+    type: String,
+    default: null
   }
 }, { timestamps: true });
 
@@ -186,11 +201,21 @@ app.post('/api/upload', async (req, res) => {
       });
 
       await video.save();
-      
-      // Dummy API call to processing server
-      setTimeout(() => {
-        console.log('Processing video:', req.file.filename);
-      }, 1000);
+
+      // Process the video if it's an HTV first lane violation
+      if (req.body.violationType === 'driving_htv_first_lane') {
+        processHTVVideo(video._id, req.file.filename);
+      } else {
+        // For other violation types, just mark as processed with a dummy result
+        // In a real system, you would process these with appropriate AI models
+        setTimeout(async () => {
+          await Video.findByIdAndUpdate(video._id, {
+            status: 'processed',
+            results: 'Analysis completed (demo)'
+          });
+          console.log('Processed video:', req.file.filename);
+        }, 5000);
+      }
 
       res.status(200).json({ message: 'Upload successful', video });
     } catch (error) {
@@ -200,6 +225,77 @@ app.post('/api/upload', async (req, res) => {
   });
 });
 
+// Function to process HTV videos with the FastAPI service
+async function processHTVVideo(videoId, filename) {
+  try {
+    console.log(`Processing HTV video ${filename} with ID ${videoId}`);
+
+    const videoPath = path.join(__dirname, 'uploads', filename);
+
+    // Create form data for the FastAPI request
+    const formData = new FormData();
+    formData.append('file', fs.createReadStream(videoPath));
+
+    // Send the video to the FastAPI service
+    const response = await axios.post('http://localhost:8000/process-video/', formData, {
+      headers: {
+        ...formData.getHeaders(),
+      },
+    });
+
+    console.log('FastAPI response:', response.data);
+
+    // Update the video record with the results
+    if (response.data.violation_detected) {
+      // If violation detected, download the image
+      const imageUrl = `http://localhost:8000${response.data.image_url}`;
+      const imageName = path.basename(response.data.image_url);
+      const imagePath = path.join(__dirname, 'outputs', imageName);
+
+      // Download the image
+      const imageResponse = await axios({
+        method: 'get',
+        url: imageUrl,
+        responseType: 'stream'
+      });
+
+      // Save the image to the outputs directory
+      const writer = fs.createWriteStream(imagePath);
+      imageResponse.data.pipe(writer);
+
+      await new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+      });
+
+      // Update the video record
+      await Video.findByIdAndUpdate(videoId, {
+        status: 'processed',
+        results: response.data.message,
+        detectionProof: imageName
+      });
+
+      console.log(`HTV violation detected for video ${filename}. Image saved at ${imagePath}`);
+    } else {
+      // No violation detected
+      await Video.findByIdAndUpdate(videoId, {
+        status: 'processed',
+        results: response.data.message
+      });
+
+      console.log(`No HTV violation detected for video ${filename}`);
+    }
+  } catch (error) {
+    console.error('Error processing HTV video:', error);
+
+    // Update the video record with the error
+    await Video.findByIdAndUpdate(videoId, {
+      status: 'processed',
+      results: 'Error processing video'
+    });
+  }
+}
+
 // Get user's videos endpoint
 app.get('/api/videos/:userId', async (req, res) => {
   try {
@@ -208,6 +304,20 @@ app.get('/api/videos/:userId', async (req, res) => {
     res.json(videos);
   } catch (error) {
     console.error('Error fetching videos:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get video details endpoint
+app.get('/api/videos/detail/:videoId', async (req, res) => {
+  try {
+    const video = await Video.findById(req.params.videoId);
+    if (!video) {
+      return res.status(404).json({ message: 'Video not found' });
+    }
+    res.json(video);
+  } catch (error) {
+    console.error('Error fetching video details:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
