@@ -3,6 +3,7 @@
 # Dependencies
 /FrontEnd/webapp/node_modules
 /Backend/Server/myenv
+/Backend/Server/outputs
 __pycache__/
 *.py[cod]
 *$py.class
@@ -15,6 +16,7 @@ __pycache__/
 
 # Uploads directory
 /FrontEnd/database/uploads/
+/FrontEnd/database/outputs/
 uploads/
 
 # Large data files

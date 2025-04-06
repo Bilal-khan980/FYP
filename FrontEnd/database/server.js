@@ -202,9 +202,11 @@ app.post('/api/upload', async (req, res) => {
 
       await video.save();
 
-      // Process the video if it's an HTV first lane violation
+      // Process the video based on violation type
       if (req.body.violationType === 'driving_htv_first_lane') {
         processHTVVideo(video._id, req.file.filename);
+      } else if (req.body.violationType === 'illegal_license_plate') {
+        processLicensePlateVideo(video._id, req.file.filename);
       } else {
         // For other violation types, just mark as processed with a dummy result
         // In a real system, you would process these with appropriate AI models
@@ -287,6 +289,85 @@ async function processHTVVideo(videoId, filename) {
     }
   } catch (error) {
     console.error('Error processing HTV video:', error);
+
+    // Update the video record with the error
+    await Video.findByIdAndUpdate(videoId, {
+      status: 'processed',
+      results: 'Error processing video'
+    });
+  }
+}
+
+// Function to process License Plate videos with the FastAPI service
+async function processLicensePlateVideo(videoId, filename) {
+  try {
+    console.log(`Processing License Plate video ${filename} with ID ${videoId}`);
+
+    const videoPath = path.join(__dirname, 'uploads', filename);
+
+    // Create form data for the FastAPI request
+    const formData = new FormData();
+    formData.append('file', fs.createReadStream(videoPath));
+
+    // Send the video to the License Plate Classification FastAPI service
+    const response = await axios.post('http://localhost:8001/process-video/', formData, {
+      headers: {
+        ...formData.getHeaders(),
+      },
+    });
+
+    console.log('License Plate FastAPI response:', response.data);
+
+    // Update the video record with the results
+    if (response.data.violation_detected) {
+      // If violation detected, download the image
+      const imageUrl = `http://localhost:8001${response.data.image_url}`;
+      const imageName = path.basename(response.data.image_url);
+      const imagePath = path.join(__dirname, 'outputs', imageName);
+
+      // Download the image
+      const imageResponse = await axios({
+        method: 'get',
+        url: imageUrl,
+        responseType: 'stream'
+      });
+
+      // Save the image to the outputs directory
+      const writer = fs.createWriteStream(imagePath);
+      imageResponse.data.pipe(writer);
+
+      await new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+      });
+
+      // Update the video record
+      await Video.findByIdAndUpdate(videoId, {
+        status: 'processed',
+        results: response.data.message,
+        detectionProof: imageName
+      });
+
+      console.log(`Illegal license plate detected for video ${filename}. Image saved at ${imagePath}`);
+    } else {
+      // No violation detected
+      await Video.findByIdAndUpdate(videoId, {
+        status: 'processed',
+        results: response.data.message
+      });
+
+      console.log(`No illegal license plate detected for video ${filename}`);
+    }
+
+    // Clean up the uploaded video file
+    try {
+      fs.unlinkSync(videoPath);
+      console.log(`Deleted uploaded video file: ${videoPath}`);
+    } catch (unlinkError) {
+      console.error(`Failed to delete uploaded video file: ${videoPath}`, unlinkError);
+    }
+  } catch (error) {
+    console.error('Error processing license plate video:', error);
 
     // Update the video record with the error
     await Video.findByIdAndUpdate(videoId, {
