@@ -182,7 +182,48 @@ const videoSchema = new mongoose.Schema({
 
 const Video = mongoose.model('Video', videoSchema);
 
-// Add video upload endpoint
+// Image Schema (similar to Video schema)
+const imageSchema = new mongoose.Schema({
+  filename: {
+    type: String,
+    required: true
+  },
+  originalName: {
+    type: String,
+    required: true
+  },
+  uploadedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  violationType: {
+    type: String,
+    enum: ['illegal_license_plate'], // Only for license plate detection
+    required: true
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'processed'],
+    default: 'pending'
+  },
+  results: {
+    type: String,
+    default: 'pending'
+  },
+  detectionProof: {
+    type: String,
+    default: null
+  },
+  isLegal: {
+    type: Boolean,
+    default: null
+  }
+}, { timestamps: true });
+
+const Image = mongoose.model('Image', imageSchema);
+
+// Add upload endpoint for both videos and images
 app.post('/api/upload', async (req, res) => {
   upload(req, res, async (err) => {
     if (err) {
@@ -193,19 +234,48 @@ app.post('/api/upload', async (req, res) => {
     }
 
     try {
+      const isImage = req.file.mimetype.startsWith('image/');
+      const isVideo = req.file.mimetype.startsWith('video/');
+      const violationType = req.body.violationType;
+
+      // Validate file type based on violation type
+      if (violationType === 'illegal_license_plate' && !isImage) {
+        return res.status(400).json({ message: 'Please upload an image file for license plate detection' });
+      } else if (violationType !== 'illegal_license_plate' && !isVideo) {
+        return res.status(400).json({ message: 'Please upload a video file for this violation type' });
+      }
+
+      // Handle image upload for license plate detection
+      if (isImage && violationType === 'illegal_license_plate') {
+        const image = new Image({
+          filename: req.file.filename,
+          originalName: req.file.originalname,
+          uploadedBy: req.body.userId,
+          violationType: violationType,
+        });
+
+        await image.save();
+
+        // Process the image with license plate detection API
+        processLicensePlateImage(image._id, req.file.filename);
+
+        return res.status(200).json({ message: 'Image upload successful', image });
+      }
+
+      // Handle video upload
       const video = new Video({
         filename: req.file.filename,
         originalName: req.file.originalname,
         uploadedBy: req.body.userId,
-        violationType: req.body.violationType,
+        violationType: violationType,
       });
 
       await video.save();
 
       // Process the video based on violation type
-      if (req.body.violationType === 'driving_htv_first_lane') {
+      if (violationType === 'driving_htv_first_lane') {
         processHTVVideo(video._id, req.file.filename);
-      } else if (req.body.violationType === 'illegal_license_plate') {
+      } else if (violationType === 'illegal_license_plate') {
         processLicensePlateVideo(video._id, req.file.filename);
       } else {
         // For other violation types, just mark as processed with a dummy result
@@ -219,7 +289,7 @@ app.post('/api/upload', async (req, res) => {
         }, 5000);
       }
 
-      res.status(200).json({ message: 'Upload successful', video });
+      res.status(200).json({ message: 'Video upload successful', video });
     } catch (error) {
       console.error('Upload error:', error);
       res.status(500).json({ message: 'Server error' });
@@ -368,11 +438,95 @@ async function processLicensePlateVideo(videoId, filename) {
     }
   } catch (error) {
     console.error('Error processing license plate video:', error);
-
-    // Update the video record with the error
     await Video.findByIdAndUpdate(videoId, {
       status: 'processed',
       results: 'Error processing video'
+    });
+  }
+}
+
+// Function to process License Plate images with the FastAPI service
+async function processLicensePlateImage(imageId, filename) {
+  try {
+    console.log(`Processing License Plate image ${filename} with ID ${imageId}`);
+
+    const imagePath = path.join(__dirname, 'uploads', filename);
+
+    // Create form data for the FastAPI request
+    const formData = new FormData();
+    formData.append('file', fs.createReadStream(imagePath));
+
+    // Send the image to the License Plate Classification FastAPI service
+    const response = await axios.post('http://localhost:8002/detect-license-plate/', formData, {
+      headers: {
+        ...formData.getHeaders(),
+      },
+    });
+
+    console.log('License Plate Image API response:', response.data);
+
+    // Check if there are any detections
+    if (response.data.detections_count > 0) {
+      // Get the processed image
+      const imageUrl = `http://localhost:8002${response.data.image_url}`;
+      const outputImageName = path.basename(response.data.image_url);
+      const outputImagePath = path.join(__dirname, 'outputs', outputImageName);
+
+      // Download the processed image
+      const imageResponse = await axios({
+        method: 'get',
+        url: imageUrl,
+        responseType: 'stream'
+      });
+
+      // Save the image to the outputs directory
+      const writer = fs.createWriteStream(outputImagePath);
+      imageResponse.data.pipe(writer);
+
+      await new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+      });
+
+      // Check if any illegal plates were detected
+      const illegalPlates = response.data.detections.filter(detection => !detection.is_legal);
+      const isLegal = illegalPlates.length === 0;
+      const resultMessage = isLegal
+        ? 'All license plates detected are legal.'
+        : `${illegalPlates.length} illegal license plate(s) detected.`;
+
+      // Update the image record
+      await Image.findByIdAndUpdate(imageId, {
+        status: 'processed',
+        results: resultMessage,
+        detectionProof: outputImageName,
+        isLegal: isLegal
+      });
+
+      console.log(`License plate image processed: ${filename}. Result: ${resultMessage}`);
+    } else {
+      // No license plates detected
+      await Image.findByIdAndUpdate(imageId, {
+        status: 'processed',
+        results: 'No license plates detected in the image.',
+        isLegal: null
+      });
+
+      console.log(`No license plates detected in image ${filename}`);
+    }
+
+    // Clean up the uploaded image file
+    try {
+      fs.unlinkSync(imagePath);
+      console.log(`Deleted uploaded image file: ${imagePath}`);
+    } catch (unlinkError) {
+      console.error(`Failed to delete uploaded image file: ${imagePath}`, unlinkError);
+    }
+  } catch (error) {
+    console.error('Error processing license plate image:', error);
+    await Image.findByIdAndUpdate(imageId, {
+      status: 'processed',
+      results: 'Error processing image'
     });
   }
 }
@@ -389,6 +543,40 @@ app.get('/api/videos/:userId', async (req, res) => {
   }
 });
 
+// Get user's images endpoint
+app.get('/api/images/:userId', async (req, res) => {
+  try {
+    const images = await Image.find({ uploadedBy: req.params.userId })
+      .sort({ createdAt: -1 });
+    res.json(images);
+  } catch (error) {
+    console.error('Error fetching images:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get all user's media (both videos and images)
+app.get('/api/media/:userId', async (req, res) => {
+  try {
+    const videos = await Video.find({ uploadedBy: req.params.userId });
+    const images = await Image.find({ uploadedBy: req.params.userId });
+
+    // Combine videos and images into a single array with a type field
+    const media = [
+      ...videos.map(v => ({ ...v.toObject(), mediaType: 'video' })),
+      ...images.map(i => ({ ...i.toObject(), mediaType: 'image' }))
+    ];
+
+    // Sort by creation date, newest first
+    media.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    res.json(media);
+  } catch (error) {
+    console.error('Error fetching media:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Get video details endpoint
 app.get('/api/videos/detail/:videoId', async (req, res) => {
   try {
@@ -399,6 +587,20 @@ app.get('/api/videos/detail/:videoId', async (req, res) => {
     res.json(video);
   } catch (error) {
     console.error('Error fetching video details:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get image details endpoint
+app.get('/api/images/detail/:imageId', async (req, res) => {
+  try {
+    const image = await Image.findById(req.params.imageId);
+    if (!image) {
+      return res.status(404).json({ message: 'Image not found' });
+    }
+    res.json(image);
+  } catch (error) {
+    console.error('Error fetching image details:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

@@ -9,23 +9,23 @@ import "./Results.css"
 
 function Results() {
   const navigate = useNavigate()
-  const [videos, setVideos] = useState([])
+  const [media, setMedia] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    fetchVideos()
+    fetchMedia()
   }, [])
 
-  const fetchVideos = async () => {
+  const fetchMedia = async () => {
     try {
       const userId = JSON.parse(localStorage.getItem("user")).id
-      const response = await axios.get(`http://localhost:5000/api/videos/${userId}`)
-      setVideos(response.data)
+      const response = await axios.get(`http://localhost:5000/api/media/${userId}`)
+      setMedia(response.data)
       setError(null)
     } catch (error) {
-      console.error("Error fetching videos:", error)
-      setError("Failed to load your videos. Please try again later.")
+      console.error("Error fetching media:", error)
+      setError("Failed to load your videos and images. Please try again later.")
     }
     setLoading(false)
   }
@@ -65,7 +65,7 @@ function Results() {
     },
   }
 
-  const item = {
+  const itemAnimation = {
     hidden: { opacity: 0, y: 20 },
     show: { opacity: 1, y: 0 },
   }
@@ -85,7 +85,7 @@ function Results() {
     <div className="results-container">
       <div className="results-header">
         <h2>Analysis Results</h2>
-        <p>View the status and results of your uploaded traffic violation evidence</p>
+        <p>View the status and results of your uploaded traffic violation evidence (videos and images)</p>
       </div>
 
       {error && (
@@ -95,36 +95,40 @@ function Results() {
         </div>
       )}
 
-      {videos.length === 0 ? (
+      {media.length === 0 ? (
         <div className="empty-state">
           <FileVideo size={48} className="empty-icon" />
-          <h3>No videos found</h3>
-          <p>You haven't uploaded any videos for analysis yet.</p>
-          <button className="refresh-button" onClick={fetchVideos}>
+          <h3>No media found</h3>
+          <p>You haven't uploaded any videos or images for analysis yet.</p>
+          <button className="refresh-button" onClick={fetchMedia}>
             Refresh
           </button>
         </div>
       ) : (
         <motion.div className="videos-grid" variants={container} initial="hidden" animate="show">
-          {videos.map((video) => (
-            <motion.div key={video._id} className="video-card" variants={item}>
+          {media.map((item) => (
+            <motion.div key={item._id} className="video-card" variants={itemAnimation}>
               <div className="video-card-header">
-                <FileVideo className="video-icon" />
-                <div className={getStatusClass(video.status)}>
-                  {getStatusIcon(video.status)}
-                  <span>{video.status}</span>
+                {item.mediaType === 'video' ? (
+                  <FileVideo className="video-icon" />
+                ) : (
+                  <img src="/image-icon.svg" alt="License plate" className="video-icon" />
+                )}
+                <div className={getStatusClass(item.status)}>
+                  {getStatusIcon(item.status)}
+                  <span>{item.status}</span>
                 </div>
               </div>
 
-              <h3 className="video-title" title={video.originalName}>
-                {video.originalName}
+              <h3 className="video-title" title={item.originalName}>
+                {item.originalName}
               </h3>
 
               <div className="video-details">
                 <div className="detail-item">
                   <Tag size={16} />
                   <span>
-                    <strong>Violation:</strong> {formatViolationType(video.violationType)}
+                    <strong>Violation:</strong> {formatViolationType(item.violationType)}
                   </span>
                 </div>
 
@@ -132,7 +136,7 @@ function Results() {
                   <Calendar size={16} />
                   <span>
                     <strong>Uploaded:</strong>{" "}
-                    {new Date(video.createdAt).toLocaleDateString(undefined, {
+                    {new Date(item.createdAt).toLocaleDateString(undefined, {
                       year: "numeric",
                       month: "short",
                       day: "numeric",
@@ -143,11 +147,16 @@ function Results() {
 
               <div className="results-section">
                 <h4>Analysis Results</h4>
-                <p className="results-text">{video.results || "Results pending analysis completion."}</p>
+                <p className="results-text">{item.results || "Results pending analysis completion."}</p>
               </div>
 
               <div className="card-actions">
-                <button className="action-button" onClick={() => navigate(`/video/${video._id}`)}>View Details</button>
+                <button
+                  className="action-button"
+                  onClick={() => navigate(`/${item.mediaType}/${item._id}`)}
+                >
+                  View Details
+                </button>
               </div>
             </motion.div>
           ))}

@@ -26,6 +26,18 @@ function Upload() {
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0]
     if (selectedFile) {
+      // Check if the file type matches the expected type based on violation type
+      const isImage = selectedFile.type.startsWith('image/')
+      const isVideo = selectedFile.type.startsWith('video/')
+
+      if (violationType === 'illegal_license_plate' && !isImage) {
+        alert('Please upload an image file for illegal license plate detection')
+        return
+      } else if (violationType !== 'illegal_license_plate' && !isVideo) {
+        alert('Please upload a video file for this violation type')
+        return
+      }
+
       setFile(selectedFile)
       setFileName(selectedFile.name)
     }
@@ -108,7 +120,7 @@ function Upload() {
             <input
               type="file"
               ref={fileInputRef}
-              accept="video/*,image/*"
+              accept={violationType === 'illegal_license_plate' ? 'image/*' : 'video/*'}
               onChange={handleFileChange}
               className="hidden-file-input"
             />
@@ -120,7 +132,11 @@ function Upload() {
                   </div>
                   <div className="upload-text">
                     <span className="primary-text">Drag & drop or click to upload</span>
-                    <span className="secondary-text">Supports images and videos</span>
+                    <span className="secondary-text">
+                    {violationType === 'illegal_license_plate'
+                      ? 'Upload an image for license plate detection'
+                      : 'Upload a video for violation detection'}
+                  </span>
                   </div>
                 </>
               ) : (

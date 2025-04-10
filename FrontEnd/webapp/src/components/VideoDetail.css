@@ -116,25 +116,25 @@
   }
 }
 
-.original-video, .detection-proof {
+.original-video, .detection-proof, .original-image {
   background-color: #f9f9f9;
   border-radius: 8px;
   padding: 20px;
 }
 
-.original-video h3, .detection-proof h3 {
+.original-video h3, .detection-proof h3, .original-image h3 {
   margin-top: 0;
   margin-bottom: 16px;
   color: #333;
 }
 
-.video-player {
+.video-player, .image-container {
   width: 100%;
   border-radius: 4px;
   overflow: hidden;
 }
 
-.video-player video {
+.video-player video, .image-container img {
   width: 100%;
   display: block;
 }
