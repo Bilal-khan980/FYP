@@ -277,6 +277,8 @@ app.post('/api/upload', async (req, res) => {
         processHTVVideo(video._id, req.file.filename);
       } else if (violationType === 'illegal_license_plate') {
         processLicensePlateVideo(video._id, req.file.filename);
+      } else if (violationType === 'driving_on_lane_line') {
+        processDrivingOnLaneVideo(video._id, req.file.filename);
       } else {
         // For other violation types, just mark as processed with a dummy result
         // In a real system, you would process these with appropriate AI models
@@ -442,6 +444,115 @@ async function processLicensePlateVideo(videoId, filename) {
       status: 'processed',
       results: 'Error processing video'
     });
+  }
+}
+
+// Function to process Driving on Lane Line videos with the FastAPI service
+async function processDrivingOnLaneVideo(videoId, filename) {
+  try {
+    console.log(`Processing Driving on Lane Line video ${filename} with ID ${videoId}`);
+
+    const videoPath = path.join(__dirname, 'uploads', filename);
+
+    // Make a copy of the video file to ensure we have it for viewing later
+    const videoBackupPath = path.join(__dirname, 'uploads', `backup_${filename}`);
+    fs.copyFileSync(videoPath, videoBackupPath);
+    console.log(`Created backup of video file at: ${videoBackupPath}`);
+
+    // Create form data for the FastAPI request
+    const formData = new FormData();
+    formData.append('file', fs.createReadStream(videoPath));
+
+    // Send the video to the Driving on Lane Line Detection FastAPI service
+    const response = await axios.post('http://localhost:8003/process-video/', formData, {
+      headers: {
+        ...formData.getHeaders(),
+      },
+    });
+
+    console.log('Driving on Lane Line FastAPI response:', response.data);
+
+    // Update the video record with the results
+    if (response.data.violation_detected) {
+      // If violation detected, download the image
+      const imageUrl = `http://localhost:8003${response.data.image_url}`;
+      const imageName = path.basename(response.data.image_url);
+      const imagePath = path.join(__dirname, 'outputs', imageName);
+
+      // Download the image
+      const imageResponse = await axios({
+        method: 'get',
+        url: imageUrl,
+        responseType: 'stream'
+      });
+
+      // Save the image to the outputs directory
+      const writer = fs.createWriteStream(imagePath);
+      imageResponse.data.pipe(writer);
+
+      await new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+      });
+
+      // Update the video record
+      await Video.findByIdAndUpdate(videoId, {
+        status: 'processed',
+        results: response.data.message,
+        detectionProof: imageName
+      });
+
+      console.log(`Driving on lane line violation detected for video ${filename}. Image saved at ${imagePath}`);
+    } else {
+      // No violation detected
+      await Video.findByIdAndUpdate(videoId, {
+        status: 'processed',
+        results: response.data.message
+      });
+
+      console.log(`No driving on lane line violation detected for video ${filename}`);
+    }
+
+    // Restore the backup video file to ensure it's available for viewing in the results
+    try {
+      // If the original file was deleted during processing, restore it from the backup
+      if (!fs.existsSync(videoPath)) {
+        fs.copyFileSync(videoBackupPath, videoPath);
+        console.log(`Restored video file from backup for viewing: ${videoPath}`);
+      }
+
+      // Clean up the backup file if it exists
+      if (fs.existsSync(videoBackupPath)) {
+        fs.unlinkSync(videoBackupPath);
+        console.log(`Removed backup video file: ${videoBackupPath}`);
+      }
+    } catch (fileError) {
+      console.error(`Error handling video files: ${fileError}`);
+    }
+  } catch (error) {
+    console.error('Error processing driving on lane line video:', error);
+
+    // Update the video record with the error
+    await Video.findByIdAndUpdate(videoId, {
+      status: 'processed',
+      results: 'Error processing video'
+    });
+
+    // Ensure the video file is restored in case of error
+    try {
+      if (!fs.existsSync(videoPath) && fs.existsSync(videoBackupPath)) {
+        fs.copyFileSync(videoBackupPath, videoPath);
+        console.log(`Restored video file from backup after error: ${videoPath}`);
+      }
+
+      // Clean up the backup file if it exists
+      if (fs.existsSync(videoBackupPath)) {
+        fs.unlinkSync(videoBackupPath);
+        console.log(`Removed backup video file: ${videoBackupPath}`);
+      }
+    } catch (fileError) {
+      console.error(`Error handling video files during error recovery: ${fileError}`);
+    }
   }
 }
 
