@@ -16,7 +16,6 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uuid
 
-# Add the overspeeding subdirectory to the path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 overspeeding_dir = os.path.join(current_dir, 'overspeeding')
 sys.path.append(overspeeding_dir)
