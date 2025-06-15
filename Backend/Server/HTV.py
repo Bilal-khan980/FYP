@@ -19,7 +19,7 @@ os.makedirs(outputs_dir, exist_ok=True)
 # Set correct paths to model files based on actual file locations
 current_dir = os.path.dirname(os.path.abspath(__file__))
 best_weights_path = os.path.join(current_dir, 'modelss', 'laneDetecion.pt')
-yolov5m_path = os.path.join(current_dir, 'yolov5(1)', 'yolov5m.pt')
+yolov5m_path = os.path.join(current_dir, 'modelss', 'yolov5s.pt')
 
 # Verify paths exist
 if not os.path.exists(best_weights_path):
