@@ -1,0 +1,25 @@
+{
+  "processing_info": {
+    "total_frames": 526,
+    "processing_time_minutes": 2.1568679571151734,
+    "processing_fps": 4.06453563267366,
+    "timestamp": "2025-06-16 03:03:50"
+  },
+  "speed_analysis": {
+    "average_speed": 9.995203899278424,
+    "maximum_speed": 25.78366893670827,
+    "minimum_speed": 0.0,
+    "speed_range": 25.78366893670827
+  },
+  "violations": {
+    "total_violations": 0,
+    "violation_details": []
+  },
+  "smoothness_analysis": {
+    "total_measurements": 526,
+    "average_speed_change": 1.2332470588466666,
+    "maximum_speed_change": 15.81169705028759,
+    "speed_standard_deviation": 6.990463756070255,
+    "stability_score": 87.66752941153334
+  }
+}

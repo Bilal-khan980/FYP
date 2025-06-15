@@ -472,7 +472,7 @@ async function processOverspeedingVideo(videoId, filename) {
     formData.append('file', fs.createReadStream(videoPath));
 
     // Send the video to the Overspeeding Detection FastAPI service
-    const response = await axios.post('http://localhost:8005/process-video/', formData, {
+    const response = await axios.post('http://localhost:8007/process-video/', formData, {
       headers: {
         ...formData.getHeaders(),
       },
@@ -483,7 +483,7 @@ async function processOverspeedingVideo(videoId, filename) {
     // Update the video record with the results
     if (response.data.violation_detected) {
       // If violation detected, download the image
-      const imageUrl = `http://localhost:8005${response.data.image_url}`;
+      const imageUrl = `http://localhost:8007${response.data.image_url}`;
       const imageName = path.basename(response.data.image_url);
       const imagePath = path.join(__dirname, 'outputs', imageName);
 
