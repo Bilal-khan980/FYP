@@ -39,7 +39,7 @@ def test_advanced_speed_detection():
         print("   • Adaptive smoothing algorithms")
         print()
         
-        # Test detailed frame-by-frame analysis
+       
         print("📹 Advanced frame-by-frame analysis...")
         cap = cv2.VideoCapture(video_path)
         
@@ -80,7 +80,7 @@ def test_advanced_speed_detection():
                 
                 vehicle_speeds.append(vehicle_speed_data)
                 
-                # Print detailed info every 25 frames
+                # Print detailed info every 25 frames of the video
                 if (frame_count + 1) % 25 == 0:
                     avg_vehicle_speed = np.mean(vehicle_speed_data) if vehicle_speed_data else 0
                     print(f"   Frame {frame_count + 1:3d}: "
