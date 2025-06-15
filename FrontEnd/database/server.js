@@ -199,7 +199,7 @@ const imageSchema = new mongoose.Schema({
   },
   violationType: {
     type: String,
-    enum: ['illegal_license_plate'], // Only for license plate detection
+    enum: ['illegal_license_plate', 'damaged_brake_lights'], // For license plate and brake light detection
     required: true
   },
   status: {
@@ -239,14 +239,14 @@ app.post('/api/upload', async (req, res) => {
       const violationType = req.body.violationType;
 
       // Validate file type based on violation type
-      if (violationType === 'illegal_license_plate' && !isImage) {
-        return res.status(400).json({ message: 'Please upload an image file for license plate detection' });
-      } else if (violationType !== 'illegal_license_plate' && !isVideo) {
+      if ((violationType === 'illegal_license_plate' || violationType === 'damaged_brake_lights') && !isImage) {
+        return res.status(400).json({ message: 'Please upload an image file for this violation type' });
+      } else if (violationType !== 'illegal_license_plate' && violationType !== 'damaged_brake_lights' && !isVideo) {
         return res.status(400).json({ message: 'Please upload a video file for this violation type' });
       }
 
-      // Handle image upload for license plate detection
-      if (isImage && violationType === 'illegal_license_plate') {
+      // Handle image upload for license plate detection and brake light detection
+      if (isImage && (violationType === 'illegal_license_plate' || violationType === 'damaged_brake_lights')) {
         const image = new Image({
           filename: req.file.filename,
           originalName: req.file.originalname,
@@ -256,8 +256,12 @@ app.post('/api/upload', async (req, res) => {
 
         await image.save();
 
-        // Process the image with license plate detection API
-        processLicensePlateImage(image._id, req.file.filename);
+        // Process the image based on violation type
+        if (violationType === 'illegal_license_plate') {
+          processLicensePlateImage(image._id, req.file.filename);
+        } else if (violationType === 'damaged_brake_lights') {
+          processBrakeLightImage(image._id, req.file.filename);
+        }
 
         return res.status(200).json({ message: 'Image upload successful', image });
       }
@@ -747,6 +751,91 @@ async function processDrivingOnLaneVideo(videoId, filename) {
     } catch (fileError) {
       console.error(`Error handling video files during error recovery: ${fileError}`);
     }
+  }
+}
+
+// Function to process Brake Light images with the FastAPI service
+async function processBrakeLightImage(imageId, filename) {
+  try {
+    console.log(`Processing Brake Light image ${filename} with ID ${imageId}`);
+
+    const imagePath = path.join(__dirname, 'uploads', filename);
+
+    // Create form data for the FastAPI request
+    const formData = new FormData();
+    formData.append('file', fs.createReadStream(imagePath));
+
+    // Send the image to the Brake Light Detection FastAPI service
+    const response = await axios.post('http://localhost:8006/detect-brake-lights/', formData, {
+      headers: {
+        ...formData.getHeaders(),
+      },
+    });
+
+    console.log('Brake Light Image API response:', response.data);
+
+    // Check if there are any detections
+    if (response.data.detections_count > 0) {
+      // Get the processed image
+      const imageUrl = `http://localhost:8006${response.data.image_url}`;
+      const outputImageName = path.basename(response.data.image_url);
+      const outputImagePath = path.join(__dirname, 'outputs', outputImageName);
+
+      // Download the processed image
+      const imageResponse = await axios({
+        method: 'get',
+        url: imageUrl,
+        responseType: 'stream'
+      });
+
+      // Save the image to the outputs directory
+      const writer = fs.createWriteStream(outputImagePath);
+      imageResponse.data.pipe(writer);
+
+      await new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+      });
+
+      // Check if any violations were detected
+      const isViolation = response.data.violation_detected;
+      const resultMessage = isViolation
+        ? 'Broken brake lights detected in the image.'
+        : 'All brake lights appear to be functioning properly.';
+
+      // Update the image record
+      await Image.findByIdAndUpdate(imageId, {
+        status: 'processed',
+        results: resultMessage,
+        detectionProof: outputImageName,
+        isLegal: !isViolation
+      });
+
+      console.log(`Brake light image processed: ${filename}. Result: ${resultMessage}`);
+    } else {
+      // No cars detected
+      await Image.findByIdAndUpdate(imageId, {
+        status: 'processed',
+        results: 'No cars detected in the image.',
+        isLegal: null
+      });
+
+      console.log(`No cars detected in brake light image ${filename}`);
+    }
+
+    // Clean up the uploaded image file
+    try {
+      fs.unlinkSync(imagePath);
+      console.log(`Deleted uploaded image file: ${imagePath}`);
+    } catch (unlinkError) {
+      console.error(`Failed to delete uploaded image file: ${imagePath}`, unlinkError);
+    }
+  } catch (error) {
+    console.error('Error processing brake light image:', error);
+    await Image.findByIdAndUpdate(imageId, {
+      status: 'processed',
+      results: 'Error processing image'
+    });
   }
 }
 

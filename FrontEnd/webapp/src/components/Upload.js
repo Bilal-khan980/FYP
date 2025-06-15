@@ -30,10 +30,10 @@ function Upload() {
       const isImage = selectedFile.type.startsWith('image/')
       const isVideo = selectedFile.type.startsWith('video/')
 
-      if (violationType === 'illegal_license_plate' && !isImage) {
-        alert('Please upload an image file for illegal license plate detection')
+      if ((violationType === 'illegal_license_plate' || violationType === 'damaged_brake_lights') && !isImage) {
+        alert('Please upload an image file for this violation type')
         return
-      } else if (violationType !== 'illegal_license_plate' && !isVideo) {
+      } else if (violationType !== 'illegal_license_plate' && violationType !== 'damaged_brake_lights' && !isVideo) {
         alert('Please upload a video file for this violation type')
         return
       }
@@ -120,7 +120,7 @@ function Upload() {
             <input
               type="file"
               ref={fileInputRef}
-              accept={violationType === 'illegal_license_plate' ? 'image/*' : 'video/*'}
+              accept={(violationType === 'illegal_license_plate' || violationType === 'damaged_brake_lights') ? 'image/*' : 'video/*'}
               onChange={handleFileChange}
               className="hidden-file-input"
             />
@@ -133,8 +133,8 @@ function Upload() {
                   <div className="upload-text">
                     <span className="primary-text">Drag & drop or click to upload</span>
                     <span className="secondary-text">
-                    {violationType === 'illegal_license_plate'
-                      ? 'Upload an image for license plate detection'
+                    {(violationType === 'illegal_license_plate' || violationType === 'damaged_brake_lights')
+                      ? `Upload an image for ${violationType === 'illegal_license_plate' ? 'license plate' : 'brake light'} detection`
                       : 'Upload a video for violation detection'}
                   </span>
                   </div>
